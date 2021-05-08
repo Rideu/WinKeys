@@ -48,13 +48,13 @@ namespace WinKeysС {
         }
         
         [global::System.Configuration.UserScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        public global::System.Collections.Specialized.StringCollection lockon_name {
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()] 
+        public global::System.Collections.Specialized.StringCollection savedWindows {
             get {
-                return ((global::System.Collections.Specialized.StringCollection)(this["lockon_name"]));
+                return ((global::System.Collections.Specialized.StringCollection)(this["savedWindows"]));
             }
             set {
-                this["lockon_name"] = value;
+                this["savedWindows"] = value;
             }
         }
     }

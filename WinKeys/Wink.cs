@@ -10,12 +10,18 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using static WinKeys.Helper;
+using WinKeysС;
 
 namespace WinKeys
 {
     public partial class WinKeys : Form
     {
-        static string keybuf = "";
+        static string
+            keybuf = "",
+            msbuf = "";
+
+        static Point mouseOld;
+        static Point mouseDelta;
         static Timer keyt = new Timer { Interval = 6 };
         static MouseHook ms_listener;
         static KeyboardHook kb_listener;
@@ -27,26 +33,22 @@ namespace WinKeys
         static int
             rmc, lmc;
 
-        private static void Ms_listener_RightButtonUp(MouseHook.MSLLHOOKSTRUCT mouseStruct)
-        {
-            rmh = false;
-        }
 
-        private static void Ms_listener_LeftButtonUp(MouseHook.MSLLHOOKSTRUCT mouseStruct)
-        {
+        private static void LeftButtonUp(MouseHook.MSLLHOOKSTRUCT mouseStruct) =>
             lmh = false;
+
+
+        private static void LeftButtonDown(MouseHook.MSLLHOOKSTRUCT mouseStruct)
+        {
+            lmc++; lmh = true;
         }
 
-        private static void Ms_listener_RightButtonDown(MouseHook.MSLLHOOKSTRUCT mouseStruct)
-        {
-            rmc++;
-            rmh = true;
-        }
+        private static void RightButtonUp(MouseHook.MSLLHOOKSTRUCT mouseStruct) =>
+            rmh = false;
 
-        private static void _listener_LeftButtonUp(MouseHook.MSLLHOOKSTRUCT mouseStruct)
+        private static void RightButtonDown(MouseHook.MSLLHOOKSTRUCT mouseStruct)
         {
-            lmc++;
-            lmh = true;
+            rmc++; rmh = true;
         }
 
         private static void Kb_listener_KeyDown(KeyboardHook.VKeys key)
@@ -57,9 +59,7 @@ namespace WinKeys
         }
         #endregion
 
-        IEnumerable<string> moduleWindowNames;
-        bool whiteListInited;
-        Timer moduleRefresher = new Timer { Interval = 5000 };
+        List<string> checkedWindows = new List<string>();
 
         public WinKeys()
         {
@@ -72,120 +72,93 @@ namespace WinKeys
             keyt.Tick += Keyt_Tick;
             keyt.Start();
 
-            moduleRefresher.Tick += ModuleRefresher_Tick;
+            if (Settings.Default.savedWindows == null)
+                Settings.Default.savedWindows = new StringCollection();
 
-            moduleRefresher.Start();
+            checkedWindows = Settings.Default.savedWindows.OfType<string>().ToList();
 
-            if (Settings.Default.lockon_name != null)
-                moduleWindowNames = Settings.Default.lockon_name.OfType<string>();
-
-            //Timer.Tick
+            buttonRefresh.Click += (s, e) =>
             {
+                var wins = GetActiveWindows().Union(checkedWindows).ToArray();
+                var items = checkedWhiteListBox.Items;
 
-                var procs = Process.GetProcesses().Where(n => n.MainWindowTitle.Length > 1).Select(n => n.MainWindowTitle).ToArray();
-                checkedWhiteListBox.Items.AddRange(procs);
+                items.Clear();
+                items.AddRange(wins);
 
-                var its = checkedWhiteListBox.Items.OfType<string>();
-
-                if (moduleWindowNames != null)
+                for (int i = 0; i < items.Count; i++)
                 {
-                    var ocs = moduleWindowNames.Intersect(its);
-
-                    for (int i = 0; i < checkedWhiteListBox.Items.Count; i++)
-                    {
-                        if (ocs.Contains(checkedWhiteListBox.Items[i].ToString()))
-                        {
-                            checkedWhiteListBox.SetItemChecked(i, true);
-                        }
-                    }
-
-                }
-            }
-            whiteListInited = true;
-
-            //#if !DEBUG
-            //ms_listener = new MouseHook();
-            //ms_listener.Install();
-            //ms_listener.LeftButtonDown += _listener_LeftButtonUp;
-            //ms_listener.LeftButtonUp += Ms_listener_LeftButtonUp;
-            //ms_listener.RightButtonDown += Ms_listener_RightButtonDown;
-            //ms_listener.RightButtonUp += Ms_listener_RightButtonUp;
-
-            kb_listener = new KeyboardHook();
-            kb_listener.Install();
-            kb_listener.KeyDown += Kb_listener_KeyDown;
-            labelHeader.MouseMove += WinHeader_MouseMove;
-            labelHeader.MouseDown += WinHeader_MouseDown;
-            buttonClose.Click += buttonClose_Click;
-            buttonMinimize.Click += buttonMinimize_Click;
-
-            ModuleHook.ActiveWindowChanged += ModuleHook_ActiveWindowChanged;
-            //#endif
-        }
-
-        private void ModuleRefresher_Tick(object sender, EventArgs e)
-        {
-            whiteListInited = false;
-
-            checkedWhiteListBox.Items.Clear();
-
-            if (Settings.Default.lockon_name != null)
-                moduleWindowNames = Settings.Default.lockon_name.OfType<string>();
-
-            var procs = Process.GetProcesses().Where(n => n.MainWindowTitle.Length > 1).Select(n => n.MainWindowTitle).ToArray();
-            checkedWhiteListBox.Items.AddRange(procs);
-
-            var its = checkedWhiteListBox.Items.OfType<string>();
-
-            if (moduleWindowNames != null)
-            {
-                var ocs = moduleWindowNames.Intersect(its);
-
-                for (int i = 0; i < checkedWhiteListBox.Items.Count; i++)
-                {
-                    if (ocs.Contains(checkedWhiteListBox.Items[i].ToString()))
+                    var win = items[i].ToString();
+                    if (checkedWindows.Contains(win))
                     {
                         checkedWhiteListBox.SetItemChecked(i, true);
                     }
                 }
+            };
 
-            }
-            whiteListInited = true;
+            kb_listener = new KeyboardHook();
+            kb_listener.KeyDown += Kb_listener_KeyDown;
+
+            ms_listener = new MouseHook();
+            ms_listener.MouseMove += Ms_listener_MouseMove;
+            ms_listener.LeftButtonDown += LeftButtonDown;
+            ms_listener.LeftButtonUp += LeftButtonUp;
+            ms_listener.RightButtonDown += RightButtonDown;
+            ms_listener.RightButtonUp += RightButtonUp;
+
+            ms_listener.Install();
+            kb_listener.Install();
+
+            ModuleHook.ActiveWindowChanged += ModuleHook_ActiveWindowChanged;
+        }
+
+        private void Ms_listener_MouseMove(MouseHook.MSLLHOOKSTRUCT mouseStruct)
+        {
+            var mouseNew = new Point(mouseStruct.pt.x, mouseStruct.pt.y);
+            mouseDelta = new Point(mouseNew.X - mouseOld.X, mouseNew.Y - mouseOld.Y);
+            mouseOld = mouseNew;
+
+        }
+
+        static List<string> GetActiveWindows()
+        {
+            return Process.GetProcesses().Where(n => n.MainWindowTitle.Length > 1).Select(n => n.MainWindowTitle).ToList();
+        }
+
+        void SaveWindows()
+        {
+
+            Settings.Default.savedWindows.Clear();
+            Settings.Default.savedWindows.AddRange(checkedWindows.ToArray());
+            Settings.Default.Save();
         }
 
         private void checkedWhiteListBox_ItemCheck(object sender, ItemCheckEventArgs e)
         {
-            if (!whiteListInited) return;
+            var ci = e.Index;
+            var i = checkedWhiteListBox.Items[ci].ToString();
+            if (e.NewValue == CheckState.Checked && !checkedWindows.Contains(i))
+                checkedWindows.Add(i);
+            else if (e.NewValue == CheckState.Unchecked)
+                checkedWindows.RemoveAll(n => n == i);
 
-            var ents = Settings.Default.lockon_name;
-
-            if (e.NewValue == CheckState.Checked)
-            {
-                ents.Add(checkedWhiteListBox.Items[e.Index].ToString());
-            }
-            else
-            {
-                ents.Remove(checkedWhiteListBox.Items[e.Index].ToString());
-            }
-
-            Settings.Default.lockon_name = ents;
-            Settings.Default.Save();
+            SaveWindows();
         }
 
         private void ModuleHook_ActiveWindowChanged(object sender, string e)
         {
-            Lock = !Settings.Default.lockon_name.Contains(e);
+            Lock = !(checkedWindows.Contains(e) || e == "WinKeys");
+            if (!Lock)
+            {
+                mousePad.SetDelta(default);
+            }
         }
 
-        /// <summary>
-        /// Lock key logging 
-        /// </summary>
         public bool Lock = false;
 
         private void Keyt_Tick(object sender, EventArgs e)
         {
 
-            keybuf = labelKeys.Text = labelKeys.Text = labelKeys.Text = "";
+            msbuf = keybuf = labelKeys.Text = labelKeys.Text = labelKeys.Text = "";
 
             if (Lock) return;
 
@@ -203,11 +176,18 @@ namespace WinKeys
             //    }
             //}
             if (lmh)
-                keybuf += "LButton";
+                msbuf += "LButton ";
             if (rmh)
-                keybuf += "RButton";
+                msbuf += "RButton";
+
+            if (mouseDelta.X != 0 || mouseDelta.Y != 0)
+            {
+                //msbuf += $"{mouseDelta.X} {mouseDelta.Y}";
+                mousePad.SetDelta(mouseDelta);
+            }
 
             labelKeys.Text = keybuf;
+            labelMouse.Text = msbuf;
         }
 
 
@@ -222,12 +202,9 @@ namespace WinKeys
 
         private void WinKeys_SizeChanged(object sender, EventArgs e)
         {
-            Task.Run(() =>
-            {
-                Settings.Default.winkeys_bounds_point = Bounds.Location;
-                Settings.Default.winkeys_bounds_size = Bounds.Size;
-                Settings.Default.Save();
-            });
+            Settings.Default.winkeys_bounds_point = Bounds.Location;
+            Settings.Default.winkeys_bounds_size = Bounds.Size;
+            Settings.Default.Save();
         }
 
         private void WinKeys_Load(object sender, EventArgs e)
@@ -285,25 +262,25 @@ namespace WinKeys
         Rectangle BottomRight { get { return new Rectangle(this.ClientSize.Width - BorderSize, this.ClientSize.Height - BorderSize, BorderSize, BorderSize); } }
 
 
-        protected override void WndProc(ref Message message)
-        {
-            base.WndProc(ref message);
+        //protected override void WndProc(ref Message message)
+        //{
+        //    base.WndProc(ref message);
 
-            if (message.Msg == 0x84)
-            {
-                var cp = MousePosition;
-                var cursor = this.PointToClient(cp);
+        //    //if (message.Msg == 0x84)
+        //    //{
+        //    //    var cp = MousePosition;
+        //    //    var cursor = this.PointToClient(cp);
 
-                if (TopLeft.Contains(cursor)) message.Result = (IntPtr)HTTOPLEFT;
-                else if (TopRight.Contains(cursor)) message.Result = (IntPtr)HTTOPRIGHT;
-                else if (BottomLeft.Contains(cursor)) message.Result = (IntPtr)HTBOTTOMLEFT;
-                else if (BottomRight.Contains(cursor)) message.Result = (IntPtr)HTBOTTOMRIGHT;
+        //    //    if (TopLeft.Contains(cursor)) message.Result = (IntPtr)HTTOPLEFT;
+        //    //    else if (TopRight.Contains(cursor)) message.Result = (IntPtr)HTTOPRIGHT;
+        //    //    else if (BottomLeft.Contains(cursor)) message.Result = (IntPtr)HTBOTTOMLEFT;
+        //    //    else if (BottomRight.Contains(cursor)) message.Result = (IntPtr)HTBOTTOMRIGHT;
 
-                else if (TopBorder.Contains(cursor)) message.Result = (IntPtr)HTTOP;
-                else if (LeftBorder.Contains(cursor)) message.Result = (IntPtr)HTLEFT;
-                else if (RightBorder.Contains(cursor)) message.Result = (IntPtr)HTRIGHT;
-                else if (BottomBorder.Contains(cursor)) message.Result = (IntPtr)HTBOTTOM;
-            }
-        }
+        //    //    else if (TopBorder.Contains(cursor)) message.Result = (IntPtr)HTTOP;
+        //    //    else if (LeftBorder.Contains(cursor)) message.Result = (IntPtr)HTLEFT;
+        //    //    else if (RightBorder.Contains(cursor)) message.Result = (IntPtr)HTRIGHT;
+        //    //    else if (BottomBorder.Contains(cursor)) message.Result = (IntPtr)HTBOTTOM;
+        //    //}
+        //}
     }
 }
